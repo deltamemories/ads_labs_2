@@ -2,79 +2,83 @@ package main
 
 import (
 	"fmt"
-	"math"
+	"sort"
 )
 
 type Point struct {
 	X, Y float64
 }
 
-func sign(p1, p2, p3 Point) float64 {
-	return (p1.X-p3.X)*(p2.Y-p3.Y) - (p2.X-p3.X)*(p1.Y-p3.Y)
+func crossProduct(a, b, c Point) float64 {
+	return (b.X-a.X)*(c.Y-a.Y) - (b.Y-a.Y)*(c.X-a.X)
 }
 
-func isPointStrictlyInside(pt, v1, v2, v3 Point) bool {
-	d1 := sign(pt, v1, v2)
-	d2 := sign(pt, v2, v3)
-	d3 := sign(pt, v3, v1)
-
-	// Проверка ориентации: все знаки должны быть строго положительными или строго отрицательными
-	hasNeg := (d1 < -1e-9) || (d2 < -1e-9) || (d3 < -1e-9)
-	hasPos := (d1 > 1e-9) || (d2 > 1e-9) || (d3 > 1e-9)
-	
-	// Если точка на границе (один из d равен 0), hasNeg и hasPos не дадут полной картины,
-	// поэтому проверяем близость к нулю для строгой вложенности.
-	if math.Abs(d1) <= 1e-9 || math.Abs(d2) <= 1e-9 || math.Abs(d3) <= 1e-9 {
-		return false
-	}
-
-	return !(hasNeg && hasPos)
-}
-
-func isCollinear(p1, p2, p3 Point) bool {
-	area := p1.X*(p2.Y-p3.Y) + p2.X*(p3.Y-p1.Y) + p3.X*(p1.Y-p2.Y)
-	return math.Abs(area) < 1e-9
-}
-
-func HasNestedTrianglesOptimized(points []Point) bool {
+func getConvexHull(points []Point) []Point {
 	n := len(points)
-	if n < 6 {
+	if n <= 2 {
+		return points
+	}
+	
+	sort.Slice(points, func(i, j int) bool {
+		if points[i].X == points[j].X {
+			return points[i].Y < points[j].Y
+		}
+		return points[i].X < points[j].X
+	})
+
+	var hull []Point
+
+	for _, p := range points {
+		for len(hull) >= 2 && crossProduct(hull[len(hull)-2], hull[len(hull)-1], p) <= 0 {
+			hull = hull[:len(hull)-1]
+		}
+		hull = append(hull, p)
+	}
+
+	lowerLen := len(hull)
+	for i := n - 2; i >= 0; i-- {
+		p := points[i]
+		for len(hull) > lowerLen && crossProduct(hull[len(hull)-2], hull[len(hull)-1], p) <= 0 {
+			hull = hull[:len(hull)-1]
+		}
+		hull = append(hull, p)
+	}
+
+	return hull[:len(hull)-1]
+}
+
+func HasNestedTrianglesFast(points []Point) bool {
+	if len(points) < 6 {
 		return false
 	}
 
-	// 1. Выбираем внешний треугольник (три точки) - O(n^3)
-	for i := 0; i < n; i++ {
-		for j := i + 1; j < n; j++ {
-			for k := j + 1; k < n; k++ {
-				p1, p2, p3 := points[i], points[j], points[k]
-				
-				if isCollinear(p1, p2, p3) {
-					continue
-				}
+	hull := getConvexHull(points)
+	
+	if len(hull) < 3 {
+		return false
+	}
 
-				// 2. Ищем точки, которые лежат СТРОГО внутри этого треугольника
-				var pointsInside []Point
-				for m := 0; m < n; m++ {
-					if m == i || m == j || m == k {
-						continue
-					}
-					if isPointStrictlyInside(points[m], p1, p2, p3) {
-						pointsInside = append(pointsInside, points[m])
-					}
-				}
+	hullMap := make(map[Point]bool)
+	for _, p := range hull {
+		hullMap[p] = true
+	}
 
-				// 3. Если внутри достаточно точек (минимум 3), проверяем, 
-				// не лежат ли они на одной прямой.
-				if len(pointsInside) >= 3 {
-					for a := 0; a < len(pointsInside); a++ {
-						for b := a + 1; b < len(pointsInside); b++ {
-							for c := b + 1; c < len(pointsInside); c++ {
-								if !isCollinear(pointsInside[a], pointsInside[b], pointsInside[c]) {
-									return true 
-								}
-							}
-						}
-					}
+	var insidePoints []Point
+	for _, p := range points {
+		if !hullMap[p] {
+			insidePoints = append(insidePoints, p)
+		}
+	}
+
+	if len(insidePoints) < 3 {
+		return false
+	}
+
+	for i := 0; i < len(insidePoints); i++ {
+		for j := i + 1; j < len(insidePoints); j++ {
+			for k := j + 1; k < len(insidePoints); k++ {
+				if crossProduct(insidePoints[i], insidePoints[j], insidePoints[k]) != 0 {
+					return true
 				}
 			}
 		}
@@ -87,10 +91,9 @@ func main() {
 	points := []Point{
 		{0, 0}, {10, 0}, {5, 10},
 		{4, 2}, {6, 2}, {5, 4},
-		{1, 1}, {9, 1},
 	}
 
-	if HasNestedTrianglesOptimized(points) {
+	if HasNestedTrianglesFast(points) {
 		fmt.Println("Result: The set contains nested triangles.")
 	} else {
 		fmt.Println("Result: No nested triangles found.")
